@@ -1,6 +1,6 @@
 # BoundedReg: an R package for modelling continuous bounded data --------------
-# Author: Ricardo Rasmussen Petterle/UFPR -------------------------------------
-# Date: 06/05/2020 ------------------------------------------------------------
+# Author: Ricardo R. Petterle, Henrique A. Laureano and Wagner H. Bonat/UFPR --
+# Date: 13/04/2021 ------------------------------------------------------------
 
 # Distributions ---------------------------------------------------------------
 # Kumaraswamy -----------------------------------
