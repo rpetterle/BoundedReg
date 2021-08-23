@@ -1,6 +1,6 @@
 # BoundedReg: an R package for modelling continuous bounded data --------------
-# Author: Ricardo R. Petterle, Henrique A. Laureano and Wagner H. Bonat/UFPR --
-# Date: 13/04/2021 ------------------------------------------------------------
+# Author: Ricardo Rasmussen Petterle/UFPR -------------------------------------
+# Date: 06/05/2020 ------------------------------------------------------------
 
 # Distributions ---------------------------------------------------------------
 # Kumaraswamy -----------------------------------
@@ -93,6 +93,7 @@ link_phi <- function(par, y, X, Z, link.phi){
   phi <- par[1:n_phi + n_beta]
   eta <- Z%*%phi
   if(link.phi == "log") phi <- inv_log(eta)
+  if(link.phi == "logit") phi <- inv_logit(eta)
   return(phi)
 }
 # -----------------------------------------------------------------------------
@@ -112,6 +113,9 @@ model_print <- function(object){
   if(object$model == "cunitgompertz" || object$model == "CUGO") model <- "Complementary unit Gompertz"
   if(object$model == "cunitgamma1" || object$model == "CUG1") model <- "Complementary unit gamma 1"
   if(object$model == "unitburrXII" || object$model == "UBXII") model <- "Unit Burr-XII"
+  if(object$model == "unitgammaMode" || object$model == "UGMode") model <- "Unit gamma mode" 
+  if(object$model == "vasicek" || object$model == "VAS") model <- "Vasicek" 
+  if(object$model == "leeg" || object$model == "LEEG") model <- "Log-extended exponential-geometric" 
   return(model)
 }
 
@@ -134,7 +138,8 @@ print.boundedReg <- function(x,
         format(x$phi_coefs, digits = digits),
         "\n", sep = "")
   } else {
-    cat("Phi coefficients (with log link):", "\n", sep = "")
+    # cat("Phi coefficients (with log link):", "\n", sep = "")
+    cat(paste("Phi coefficients (with ", x$link.phi, " link):", "\n", sep = ""))
     print.default(format(x$phi_coefs, digits = digits),
                   print.gap = 2, quote = FALSE)
   }
@@ -163,7 +168,8 @@ print.summary.boundedReg <- function(x,
                digits = digits,
                has.Pvalue = TRUE)
   cat("\n")
-  cat("Phi coefficients (with log link):", "\n", sep = "")
+  # cat("Phi coefficients (with log link):", "\n", sep = "")
+  cat(paste("Phi coefficients (with ", x$link.phi, " link):", "\n", sep = ""))
   printCoefmat(x$coeftable$phi,
                digits = digits,
                has.Pvalue = TRUE)
@@ -200,6 +206,7 @@ summary.boundedReg <- function(object, ...) {
   out <- list(coeftable   = ctable,
               model       = object$model, 
               link.mu     = object$link.mu,
+              link.phi     = object$link.phi,
               loglik      = object$loglik,
               AIC         = object$AIC, 
               BIC         = object$BIC,
@@ -693,6 +700,27 @@ ll_CUG1 <- function(par, X, Z, y, link.mu, link.phi){
   return(-ll)
 }
 
+# Negative of log-likelihood function for unit gamma (mode)
+ll_UGMode <- function(par, X, Z, y, link.mu, link.phi){
+  n_beta <- ncol(X)
+  n_phi <- ncol(Z)
+  mu <- link_mu(par = par, X = X, y = y, link.mu = link.mu)
+  phi <- link_phi(par = par, X = X, Z = Z, y = y, link.phi = link.phi)
+  b <- (1+log(mu)-phi)/log(mu)
+  ll <- sum( phi * log(b) - lgamma(phi) + (b - 1) * log(y) + (phi - 1)*log(-log(y)) )
+  return(-ll)
+}
+
+# Negative of log-likelihood function for Vasicek (25/05/2021)
+ll_VAS <- function(par, X, Z, y, link.mu, link.phi){
+  n_beta <- ncol(X)
+  n_phi <- ncol(Z)
+  mu <- link_mu(par = par, X = X, y = y, link.mu = link.mu)
+  phi <- link_phi(par = par, X = X, Z = Z, y = y, link.phi = link.phi)
+  ll <- sum( 0.5 * log((1 - phi)/phi) + 0.5 * ( qnorm(y) * qnorm(y) - ( (qnorm(y) * sqrt(1 - phi) - qnorm(mu))/sqrt(phi))^2 ) )
+  return(-ll)
+}
+
 # 03/03/2021 ------------------------------------ Não funciona!!!
 duburrXII <- function(y, mu, phi, log=TRUE){
   tt <- -1/phi
@@ -709,15 +737,29 @@ ll_UBXII <- function(par, X, Z, y, link.mu, link.phi){
   n_phi <- ncol(Z)
   mu <- link_mu(par = par, X = X, y = y, link.mu = link.mu)
   phi <- link_phi(par = par, X = X, Z = Z, y = y, link.phi = link.phi)
-  #u <- 0.5
-  #tt <- -1/phi
-  #dt <- log(0.5^(tt) - 1)/log(log(1/mu)) 
-  #ll <- sum( log(phi) + log(log(0.5^(tt) - 1 )) - log(y) -
-  #            log(log(log(1/mu))) - (dt - 1) * log(log(1/y)) + (-phi - 1) * log(1 + log(1/y)^(dt))
-  #          )
-  ll <- sum(duburrXII(y, mu = mu, phi = phi))
+  tau <- 0.5
+  #b <- log(tau^(-1/phi) - 1)/(log(-log(mu)))
+  ll <- sum( log(phi) + log(log(tau^(-1/phi) - 1)/(log(-log(mu)))) - log(y) + 
+               (log(tau^(-1/phi) - 1)/(log(-log(mu))) - 1) * log(-log(y)) - 
+               (phi - 1) * log(1 + (-log(y))^(log(tau^(-1/phi) - 1)/(log(-log(mu)))) ))
+  #ll <- sum(duburrXII(y, mu = mu, phi = phi))
   return(-ll)
 }
+
+# 14/08/2021 ------------------------------------------------------------------
+# Negative of log-likelihood function for LEEG
+ll_LEEG <- function(par, X, Z, y, link.mu, link.phi){
+  n_beta <- ncol(X)
+  n_phi <- ncol(Z)
+  mu <- link_mu(par = par, X = X, y = y, link.mu = link.mu)
+  phi <- link_phi(par = par, X = X, Z = Z, y = y, link.phi = link.phi)
+  tau <- 0.5
+  b <- (tau - mu^phi)/(mu^phi * (1 - tau)) # Quantile
+  #b <- (phi - 1)/((phi + 1) * mu^(phi)) # Mode
+  ll <- sum( log(phi) + log(1 + b) + (phi - 1) * log(y) - 2 * log(1 + b * y^phi) )
+  return(-ll)
+}
+
 # -----------------------------------------------------------------------------
 
 boundedReg_fit <- function(loglik_fun, X, Z, y, link.mu, link.phi,
@@ -801,6 +843,9 @@ boundedReg <- function(formula, phi.formula = ~1, model, link.mu, link.phi, data
                        "cunitgompertz" = ll_CUGO,
                        "cunitgamma1" = ll_CUG1,
                        "unitburrXII" = ll_UBXII,
+                       "unitgammaMode" = ll_UGMode,
+                       "vasicek" = ll_VAS,
+                       "leeg" = ll_LEEG,
                        # Abbreviation -----------
                        "BE" = ll_beta,
                        "SIM" = ll_simplex,
@@ -815,7 +860,10 @@ boundedReg <- function(formula, phi.formula = ~1, model, link.mu, link.phi, data
                        "UGO" = ll_UGO,
                        "CUGO" = ll_CUGO,
                        "CUG1" = ll_CUG1,
-                       "UBXII" = ll_UBXII
+                       "UBXII" = ll_UBXII,
+                       "UGMode" = ll_UGMode,
+                       "VAS" = ll_VAS,
+                       "LEEG" = ll_LEEG
                         )
   # Fitting -------------------------------------------------------------------
   start <- temp$start
